@@ -15,10 +15,12 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.Log;
 import androidx.core.app.NotificationCompat;
 
 public class VolumeLimiterService extends Service {
 
+    private static final String TAG = "VolumeLimiterService";
     private static final String CHANNEL_ID = "VolumeLimiterChannel";
     private static final int NOTIFICATION_ID = 1;
     
@@ -42,6 +44,8 @@ public class VolumeLimiterService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        
+        Log.d(TAG, "Service onCreate");
         
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         sharedPreferences = getSharedPreferences("VolumeLimiterPrefs", MODE_PRIVATE);
@@ -79,6 +83,8 @@ public class VolumeLimiterService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.d(TAG, "Service onStartCommand");
+        
         // Reload volume limit in case it changed
         maxVolumeLimit = sharedPreferences.getInt("volumeLimit", 50);
         
@@ -86,7 +92,8 @@ public class VolumeLimiterService extends Service {
         Notification notification = createNotification();
         startForeground(NOTIFICATION_ID, notification);
         
-        return START_STICKY; // Service will restart if killed
+        // Return START_STICKY so service restarts if killed
+        return START_STICKY;
     }
 
     private Notification createNotification() {
@@ -124,6 +131,7 @@ public class VolumeLimiterService extends Service {
                     maxAllowedVolume, 
                     0 // No UI flags
                 );
+                Log.d(TAG, "Volume limited: " + currentVolume + " -> " + maxAllowedVolume);
             }
             
             // Also check and limit alarm volume to prevent workarounds
@@ -136,13 +144,15 @@ public class VolumeLimiterService extends Service {
             }
             
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e(TAG, "Error checking volume", e);
         }
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
+        
+        Log.d(TAG, "Service onDestroy");
         
         // Stop handler
         if (handler != null && volumeCheckRunnable != null) {
@@ -153,8 +163,27 @@ public class VolumeLimiterService extends Service {
         try {
             unregisterReceiver(volumeChangeReceiver);
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e(TAG, "Error unregistering receiver", e);
         }
+        
+        // Restart service if it was enabled
+        boolean serviceEnabled = sharedPreferences.getBoolean("serviceEnabled", false);
+        if (serviceEnabled) {
+            Log.d(TAG, "Service destroyed but was enabled - restarting");
+            Intent restartIntent = new Intent(getApplicationContext(), VolumeLimiterService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(restartIntent);
+            } else {
+                startService(restartIntent);
+            }
+        }
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        Log.d(TAG, "Task removed - service continues running");
+        // Service continues running even when app is closed from recent apps
     }
 
     @Override
